@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5">
+<title>홍콩 3일 (6/25–6/27) · 지도 + 날씨별 루트</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
+<style>
+  :root{
+    --ink:#0b1020; --ink2:#0f1730; --panel:#121a2e; --line:#23304e;
+    --text:#e9eefb; --muted:#9aa7c4; --muted2:#74819f;
+    --d1:#8b95a7; --d2:#ff9e3d; --d2line:#f08322; --d3:#22d3ee; --d3line:#12b6cd;
+    --sun:#ffb703; --rain:#4ea8de; --off:#5f6b82;
+    --r:14px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard","Noto Sans KR","Malgun Gothic",system-ui,sans-serif;
+    background:var(--ink); color:var(--text); overflow:hidden;
+  }
+  .wrap{display:flex; flex-direction:column; height:100vh; height:100dvh}
+
+  /* Header */
+  header{
+    background:linear-gradient(180deg,#0e1530,#0b1020);
+    border-bottom:1px solid var(--line);
+    padding:10px 14px; flex:0 0 auto; z-index:1200;
+  }
+  .titlerow{display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+  .titlerow h1{font-size:17px; margin:0; letter-spacing:-.02em; font-weight:800}
+  .titlerow .sub{font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums}
+  .controls{display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; align-items:center}
+  
+  .seg{display:inline-flex; background:#0a0f22; border:1px solid var(--line); border-radius:999px; padding:3px; gap:2px}
+  .seg button{
+    appearance:none; border:0; background:transparent; color:var(--muted);
+    font:inherit; font-size:12.5px; font-weight:700; padding:6px 11px; border-radius:999px; cursor:pointer;
+    white-space:nowrap; transition:background .15s,color .15s;
+  }
+  .seg button:hover{color:var(--text)}
+  .seg button[aria-pressed="true"]{color:#0b1020; background:var(--text)}
+  .seg.day button[aria-pressed="true"][data-day="2"]{background:var(--d2); color:#3a1c00}
+  .seg.day button[aria-pressed="true"][data-day="3"]{background:var(--d3); color:#053038}
+  .seg.day button[aria-pressed="true"][data-day="1"]{background:var(--d1); color:#10131c}
+  .seg.wx button{font-size:14px; padding:6px 13px}
+  .seg.wx button[aria-pressed="true"][data-wx="sun"]{background:var(--sun); color:#3a2a00}
+  .seg.wx button[aria-pressed="true"][data-wx="rain"]{background:var(--rain); color:#03233a}
+  .wxhint{font-size:11px; color:var(--muted2)}
+  
+  /* Buttons */
+  .action-btns{ display:flex; gap:6px; margin-left:auto }
+  .btn-add{
+    background:var(--d3); color:#053038; border:none; padding:6px 12px; font-size:12px;
+    font-weight:800; border-radius:999px; cursor:pointer;
+    transition: background 0.2s; white-space:nowrap;
+  }
+  .btn-add:hover{ background:#47e2f5; }
+  .btn-add.search{ background:var(--sun); color:#3a2a00; }
+  .btn-add.search:hover{ background:#ffc933; }
+
+  /* Body split */
+  .body{display:flex; flex:1 1 auto; min-height:0}
+  #map{flex:1 1 auto; min-width:0; min-height:300px; background:#0a0f1d}
+  .leaflet-container{background:#0a0f1d}
+
+  aside{
+    flex:0 0 360px; max-width:42vw; background:var(--ink2); border-left:1px solid var(--line);
+    display:flex; flex-direction:column; min-height:0;
+  }
+  .tabs{display:flex; border-bottom:1px solid var(--line); flex:0 0 auto}
+  .tabs button{
+    flex:1; appearance:none; border:0; background:transparent; color:var(--muted);
+    font:inherit; font-weight:700; font-size:12px; padding:12px 2px; cursor:pointer; position:relative;
+  }
+  .tabs button[aria-selected="true"]{color:var(--text)}
+  .tabs button[aria-selected="true"]::after{
+    content:""; position:absolute; left:18%; right:18%; bottom:-1px; height:2px; background:var(--text); border-radius:2px;
+  }
+  .panel{overflow:auto; padding:14px 14px 28px; flex:1 1 auto}
+  .panel::-webkit-scrollbar{width:9px}
+  .panel::-webkit-scrollbar-thumb{background:#27324d; border-radius:9px}
+
+  .planhead{display:flex; align-items:center; gap:9px; margin:2px 0 12px}
+  .chip{font-size:11.5px; font-weight:800; padding:4px 9px; border-radius:999px}
+  .chip.d2{background:rgba(255,158,61,.16); color:var(--d2); border:1px solid rgba(255,158,61,.4)}
+  .chip.d3{background:rgba(34,211,238,.14); color:var(--d3); border:1px solid rgba(34,211,238,.4)}
+  .chip.d1{background:rgba(139,149,167,.16); color:#c4cbdb; border:1px solid rgba(139,149,167,.4)}
+  .chip.wx{background:#0a0f22; border:1px solid var(--line); color:var(--text)}
+
+  ol.timeline{list-style:none; margin:0; padding:0; position:relative}
+  ol.timeline::before{content:""; position:absolute; left:13px; top:6px; bottom:14px; width:2px; background:var(--line)}
+  ol.timeline li{position:relative; padding:0 0 14px 38px; cursor:pointer}
+  ol.timeline li .dot{position:absolute; left:5px; top:3px; width:18px; height:18px; border-radius:50%;
+    background:var(--ink2); border:2px solid var(--muted); display:grid; place-items:center; font-size:9px; font-weight:800; color:var(--muted); z-index:1}
+  .d2 ol.timeline li .dot{border-color:var(--d2); color:var(--d2)}
+  .d3 ol.timeline li .dot{border-color:var(--d3); color:var(--d3)}
+  ol.timeline li:hover .tl-title{text-decoration:underline}
+  .tl-time{font-size:11.5px; font-weight:800; color:var(--muted); font-variant-numeric:tabular-nums}
+  .tl-title{font-size:14px; font-weight:700; margin:1px 0 2px}
+  .tl-desc{font-size:12.5px; color:var(--muted); line-height:1.5}
+  .tl-desc b{color:#ffd9a8}
+  .d3 .tl-desc b{color:#a9eef6}
+
+  /* Cautions & Category List */
+  .cau-sec{margin:6px 0 16px}
+  .cau-sec h3{font-size:13px; letter-spacing:.02em; color:var(--text); margin:0 0 8px; font-weight:800}
+  .cau-sec h3 .tagd2{color:var(--d2)} .cau-sec h3 .tagd3{color:var(--d3)}
+  ol.cau{margin:0; padding:0; counter-reset:c; list-style:none}
+  ol.cau li{position:relative; padding:0 0 11px 30px; font-size:12.8px; line-height:1.55; color:var(--text)}
+  ol.cau li::before{counter-increment:c; content:counter(c); position:absolute; left:0; top:0;
+    width:20px; height:20px; border-radius:50%; background:#0a0f22; border:1px solid var(--line);
+    color:var(--muted); font-size:11px; font-weight:800; display:grid; place-items:center}
+  ol.cau li.warn::before{background:#3a1414; border-color:#7a2d2d; color:#ff9b9b}
+  ol.cau li .k{color:#ffd9a8; font-weight:700}
+  ol.cau li.warn .k{color:#ff9b9b}
+
+  /* Legend */
+  .leg h3{font-size:12px; letter-spacing:.04em; text-transform:uppercase; color:var(--muted2); margin:14px 0 8px; font-weight:800}
+  .leg .row{display:flex; align-items:center; gap:9px; font-size:12.8px; padding:3px 0; color:var(--text)}
+  .swatch{width:26px; height:0; border-top-width:4px; border-top-style:solid; border-radius:3px; flex:0 0 26px}
+  .ldot{width:18px; height:18px; border-radius:50%; display:grid; place-items:center; font-size:10px; flex:0 0 18px}
+  .leg small{color:var(--muted)}
+
+  /* Marker icon */
+  .mk{width:28px; height:28px; border-radius:50% 50% 50% 2px; transform:rotate(45deg);
+    border:2px solid rgba(255,255,255,.85); box-shadow:0 2px 6px rgba(0,0,0,.5); display:grid; place-items:center}
+  .mk span{transform:rotate(-45deg); font-size:14px; line-height:1}
+  .mk.off{border-style:dashed; opacity:.92}
+  .mk.add{border-color:#cdd6ea}
+  .dotmk{width:13px; height:13px; border-radius:50%; border:1.5px solid rgba(255,255,255,.72); box-shadow:0 1px 3px rgba(0,0,0,.5)}
+  .dotmk.off{border-style:dashed; opacity:.8}
+  .numbubble{width:16px; height:16px; border-radius:50%; border:1.5px solid #fff; color:#0b1020; font-size:10.5px; font-weight:800; display:grid; place-items:center; box-shadow:0 1px 3px rgba(0,0,0,.55)}
+  .tilemsg{max-width:240px; background:#3a1414; border:1px solid #7a2d2d; color:#ffd0d0; font-size:11px; line-height:1.45; padding:7px 9px; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,.5)}
+  
+  /* Popup Overrides */
+  .leaflet-popup-content-wrapper{background:#0e1530; color:var(--text); border:1px solid var(--line); border-radius:12px}
+  .leaflet-popup-tip{background:#0e1530; border:1px solid var(--line)}
+  .leaflet-popup-content{margin:11px 13px; font-size:13px; line-height:1.5}
+  .leaflet-popup-content b{font-size:14px; color:#fff}
+  .pop-en{color:var(--muted); font-size:11.5px}
+  .pop-note{display:block; margin-top:5px; color:#c7d0e6; font-size:12px}
+  .pop-cat{display:inline-block; margin-top:6px; font-size:10.5px; font-weight:800; padding:2px 7px; border-radius:999px; background:#0a0f22; border:1px solid var(--line); color:var(--muted)}
+  a.leaflet-popup-close-button{color:var(--muted)!important}
+
+  /* Geocoder (Search Bar) Dark Mode Styling */
+  .leaflet-control-geocoder { background:#0e1530 !important; color:var(--text) !important; border:1px solid var(--line) !important; border-radius:6px; }
+  .leaflet-control-geocoder-icon { border-radius:6px; background-color:transparent !important; filter:invert(1) opacity(0.8); }
+  .leaflet-control-geocoder-expanded .leaflet-control-geocoder-icon { background-color: transparent !important; }
+  .leaflet-control-geocoder-form input { color:var(--text) !important; background:transparent !important; font-family:inherit; }
+  .leaflet-control-geocoder-alternatives { background:#0e1530 !important; border:1px solid var(--line) !important; border-top:none !important; border-radius:0 0 6px 6px; }
+  .leaflet-control-geocoder-alternatives li { color:var(--text) !important; }
+  .leaflet-control-geocoder-alternatives li:hover { background-color:#1a2542 !important; }
+
+  /* ====================================================
+     📱 모바일 반응형 최적화 
+     (화면 높이 확보를 위해 상단 헤더 압축 및 지도 높이 조절)
+     ==================================================== */
+  @media (max-width:760px){
+    .body{flex-direction:column}
+    
+    /* 하단 여백 확보를 위해 지도 비율을 줄임 */
+    #map{flex:0 0 38vh; height:38vh; min-height:240px}
+    aside{flex:1 1 auto; max-width:none; border-left:0; border-top:1px solid var(--line)}
+    
+    /* 헤더 패딩 및 줄간격 축소 */
+    header { padding: 8px 10px; }
+    .titlerow { gap: 6px; flex-wrap: nowrap; }
+    .titlerow h1{font-size:15px; white-space:nowrap;}
+    
+    /* 공간 절약을 위해 보조 텍스트 숨김 처리 */
+    .titlerow .sub { display: none; }
+    .wxhint { display: none; }
+    
+    /* 버튼 사이즈 축소 및 우측 정렬 */
+    .action-btns { margin-left: auto; gap: 4px; flex-shrink: 0; }
+    .btn-add { padding: 5px 8px; font-size: 11px; }
+    
+    /* 날짜/날씨 컨트롤 한 줄에 컴팩트하게 배치 */
+    .controls { margin-top: 6px; gap: 4px; justify-content: flex-start; }
+    .seg button { font-size: 11px; padding: 4px 7px; letter-spacing: -0.3px; }
+    .seg.wx button { font-size: 11px; padding: 4px 7px; }
+    
+    /* 하단 탭 글씨 크기 약간 축소 */
+    .tabs button { font-size: 11.5px; padding: 10px 2px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="titlerow">
+      <h1>홍콩 3일 여행 지도</h1>
+      <span class="sub">6/25(목)·도착 → 6/26(금)·홍콩섬 → 6/27(토)·구룡+밤비행기</span>
+      <div class="action-btns">
+        <button id="btn-search-add" class="btn-add search">🔍 검색 추가</button>
+        <button id="btn-add-spot" class="btn-add">➕ 지도 클릭</button>
+      </div>
+    </div>
+    <div class="controls">
+      <div class="seg day" role="group" aria-label="날짜 선택">
+        <button data-day="all" aria-pressed="false">전체</button>
+        <button data-day="1" aria-pressed="false">1일·도착</button>
+        <button data-day="2" aria-pressed="true">2일·홍콩섬</button>
+        <button data-day="3" aria-pressed="false">3일·구룡</button>
+      </div>
+      <div class="seg wx" role="group" aria-label="날씨 선택">
+        <button data-wx="sun" aria-pressed="true" title="맑고 더운 날 계획">☀️ 맑음</button>
+        <button data-wx="rain" aria-pressed="false" title="비·흐린 날 계획">☁️ 비·흐림</button>
+      </div>
+      <span class="wxhint">☀️/☁️ 전환 · 장소 추가 버튼으로 커스텀 마커 생성 가능</span>
+    </div>
+  </header>
+
+  <div class="body">
+    <div id="map"></div>
+    <aside>
+      <div class="tabs" role="tablist">
+        <button id="tab-plan" role="tab" aria-selected="true">일정</button>
+        <button id="tab-cat" role="tab" aria-selected="false">맛집·카페·장소</button>
+        <button id="tab-cau" role="tab" aria-selected="false">주의사항</button>
+        <button id="tab-leg" role="tab" aria-selected="false">범례</button>
+      </div>
+      <div class="panel" id="panel-plan"></div>
+      <div class="panel" id="panel-cat" hidden></div>
+      <div class="panel" id="panel-cau" hidden></div>
+      <div class="panel" id="panel-leg" hidden></div>
+    </aside>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+<script>
+/* ---------- Category styling ---------- */
+const CAT = {
+  food:{e:"🍜",l:"식당·면·딤섬"}, sweet:{e:"🥐",l:"카페·베이커리·디저트"},
+  sight:{e:"📸",l:"명소·포토·전망"}, shop:{e:"🛍️",l:"상점·몰·쇼핑"},
+  market:{e:"🧺",l:"시장·야시장"}, spa:{e:"💆",l:"마사지·스파"},
+  transit:{e:"🚉",l:"교통·역·버스"}, bar:{e:"🍸",l:"바·나이트라이프"}, temple:{e:"⛩️",l:"사원"}
+};
+const DAYC = {1:"var(--d1)",2:"var(--d2)",3:"var(--d3)"};
+
+/* ---------- Spots ---------- */
+const SPOTS = [
+ // Day 1
+ {id:"hotel",ko:"센트럴 숙소 (도착)",en:"Central hotel",lat:22.2818,lng:114.1560,cat:"transit",day:1,note:"1일 차 야간 도착 → 공항철도(AEL)/버스로 체크인. 공항에서 옥토퍼스 구매·eSIM 켜기·현금 확보."},
+ {id:"cheztrente",ko:"Chez Trente Central",en:"Chez Trente",lat:22.28154,lng:114.15264,cat:"bar",day:1,note:"소호의 숨겨진 라이브 재즈 클럽 & 아트 스페이스. 주말 라이브 공연, 수제 맥주."},
+ 
+ // Day 2
+ {id:"lanfong",ko:"란퐁유엔 (밀크티)",en:"Lan Fong Yuen",lat:22.2825613,lng:114.153951,cat:"food",day:2,note:"홍콩식 밀크티·프렌치토스트. 7:30 오픈, 일 휴무, 현금/옥토퍼스."},
+ {id:"singheung",ko:"싱흥유엔 (토마토면)",en:"Sing Heung Yuen",lat:22.284096,lng:114.1525891,cat:"food",day:2,note:"다이파이동 토마토면. 8:00–15:45, 일 휴무."},
+ {id:"sangkee",ko:"상기콘지 (죽)",en:"Sang Kee Congee",lat:22.2853092,lng:114.1516789,cat:"food",day:2,note:"⚠️ 금·일 휴무. 죽 조식 원하면 다른 곳으로"},
+ {id:"western",ko:"웨스턴 마켓",en:"Western Market",lat:22.287287,lng:114.150392,cat:"sight",day:2,note:"1906년 건물(실내). 직물·기념품"},
+ {id:"shiushing",ko:"Shiu Shing Hong",en:"兆成行",lat:22.285703,lng:114.1501518,cat:"shop",day:2,note:"호텔향 프래그런스 오일. 9:30–17:30, 일 휴무, 현금."},
+ {id:"jennysw",ko:"제니베이커리 (셩완)",en:"Jenny Bakery",lat:22.285103,lng:114.1537285,cat:"sweet",day:2,note:"버터쿠키. 현금만. 오전 일찍 선구매 권장"},
+ {id:"rainbowc",ko:"7-COLOUR HARBOUR",en:"Cochrane St",lat:22.2828295,lng:114.1542797,cat:"shop",day:2,note:"감성 기념품. 코크란가, 에스컬레이터 바로 옆."},
+ {id:"escalator",ko:"미드레벨 에스컬레이터",en:"Mid-Levels",lat:22.2838464,lng:114.1549689,cat:"sight",day:2,note:"지붕 있음. 6–10시 하행 / 10시 이후 상행"},
+ {id:"manmo",ko:"만모사원",en:"Man Mo Temple",lat:22.2839729,lng:114.1501999,cat:"temple",day:2,note:"도교 사원. 8–18. 실내"},
+ {id:"select18",ko:"Select 18 (빈티지)",en:"Select 18",lat:22.2851753,lng:114.1494925,cat:"shop",day:2,note:"캣스트리트 빈티지숍. 12–19."},
+ {id:"galet",ko:"GALET ANTIQUE",en:"摩羅上街",lat:22.2850618,lng:114.1493656,cat:"shop",day:2,note:"캣스트리트 고가구·골동품. 11–19"},
+ {id:"kaukee",ko:"카우키 (소고기국수)",en:"Kau Kee",lat:22.2842413,lng:114.1525076,cat:"food",day:2,note:"⚠️ 12:30 오픈·일 휴무·현금만. 줄 김"},
+ {id:"tsimchai",ko:"침차이키 (완탕면)",en:"Tsim Chai Kee",lat:22.2829758,lng:114.1544256,cat:"food",day:2,note:"완탕면. 11–21:30, 현금/옥토퍼스. 카우키 대안"},
+ {id:"ms",ko:"M&S (식품·쇼핑)",en:"Marks & Spencer",lat:22.2811366,lng:114.1568023,cat:"shop",day:2,note:"센트럴 퀸즈로드. 8–21."},
+ {id:"bakehouse",ko:"베이크하우스 (완자이)",en:"Bakehouse",lat:22.2776,lng:114.1735,cat:"sweet",day:2,note:"사워도 에그타르트. 완자이 본점. 줄."},
+ {id:"aptcoffee",ko:"Apt. Coffee",en:"Wanchai",lat:22.2761649,lng:114.1684939,cat:"sweet",day:2,note:"커스텀 토스트. 스타/문/선스트리트. 8–18"},
+ {id:"kaori",ko:"Kaōri",en:"香り Kaōri",lat:22.2756851,lng:114.1715861,cat:"sweet",day:2,note:"스페셜티 커피. 8–18. 완자이 산토우가."},
+ {id:"mycup",ko:"마이컵오브티",en:"My Cup of Tea",lat:22.2761048,lng:114.1729032,cat:"food",day:2,note:"밀크티·스크램블에그 샌드. 7–18:30, 현금."},
+ {id:"pinto",ko:"PIN TO (태국)",en:"PIN TO",lat:22.276414,lng:114.1710266,cat:"food",day:2,note:"정통 태국, 9석. 월 휴무, 12–21:30."},
+ {id:"wcmarket",ko:"완자이 마켓",en:"Wan Chai Market",lat:22.2750716,lng:114.1737073,cat:"market",day:2,note:"재래시장. 8–20"},
+ {id:"bluehouse",ko:"블루하우스",en:"Blue House",lat:22.2739309,lng:114.1741481,cat:"sight",day:2,note:"역사건물 외관. 내부 수 휴무"},
+ {id:"bauhinia",ko:"골든 바우히니아 광장",en:"Golden Bauhinia",lat:22.284425,lng:114.1739009,cat:"sight",day:2,note:"하버뷰 광장(24h)."},
+ {id:"spa",ko:"Beauty & Spa",en:"Central",lat:22.2818,lng:114.1552,cat:"spa",day:2,note:"예약한 마사지. 60분 권장"},
+ {id:"dingdim",ko:"딩딤 1968",en:"Ding Dim 1968",lat:22.281294,lng:114.1549171,cat:"food",day:2,note:"딤섬 저녁. 11–22~. 윈덤가"},
+ {id:"exchange",ko:"익스체인지 스퀘어",en:"Exchange Square",lat:22.28408,lng:114.15762,cat:"transit",day:2,note:"피크행 15번 버스 출발지. 트램 줄 회피용"},
+ {id:"peak",ko:"빅토리아 피크",en:"Victoria Peak",lat:22.2712357,lng:114.1499638,cat:"sight",day:2,note:"야경. 트램 줄 김 → 온라인 예약/버스. 맑은 날 필수"},
+ {id:"lkf",ko:"란콰이퐁",en:"Lan Kwai Fong",lat:22.2806973,lng:114.1555456,cat:"bar",day:2,note:"바·펍 거리. 밤 10시 이후 절정"},
+ {id:"dragonfly",ko:"Dragonfly (칵테일)",en:"Tai Kwun",lat:22.2810867,lng:114.1541828,cat:"bar",day:2,note:"타이쿤 내 칵테일바. 우천 시 추천"},
+ {id:"taikwun",ko:"타이쿤 (역사·갤러리)",en:"Tai Kwun",lat:22.2816,lng:114.1546,cat:"sight",day:2,add:true,note:"옛 경찰서·감옥 → 갤러리. 무료. 우천 최적"},
+ {id:"pacific",ko:"퍼시픽 플레이스",en:"Pacific Place",lat:22.2774,lng:114.1655,cat:"shop",day:2,add:true,note:"애드미럴티 대형몰(실내). 쇼핑"},
+ 
+ // Day 3
+ {id:"adc",ko:"호주우유공사",en:"Australia Dairy Co.",lat:22.304628,lng:114.1705439,cat:"food",day:3,note:"토스트·우유푸딩. ⚠️목 휴무, 현금. 7:30 오픈"},
+ {id:"yattung",ko:"일동헌 (미쉐린 딤섬)",en:"Yat Tung Heen",lat:22.3080401,lng:114.1717085,cat:"food",day:3,note:"미쉐린 1성. 토 10–16/18–22:30. 예약 권장."},
+ {id:"temple",ko:"템플스트리트 야시장",en:"Temple St",lat:22.3065185,lng:114.1699805,cat:"market",day:3,note:"야시장(14–23). 부분 지붕"},
+ {id:"hingkee",ko:"흥키 (클레이팟)",en:"Hing Kee",lat:22.31136,lng:114.170107,cat:"food",day:3,note:"템플스트리트 클레이팟 라이스. 17:30~24."},
+ {id:"mido",ko:"미도 카페",en:"Mido Cafe",lat:22.3102211,lng:114.1702722,cat:"sweet",day:3,note:"1950s 빙섯. 수 휴무, 10:30–19:30. 내부 촬영 제한"},
+ {id:"ladies",ko:"레이디스마켓",en:"Ladies' Market",lat:22.317609,lng:114.1709284,cat:"market",day:3,note:"야외 시장. 11–23:30."},
+ {id:"onedim",ko:"원 딤섬",en:"One Dim Sum",lat:22.3254818,lng:114.1691477,cat:"food",day:3,note:"가성비 딤섬. 토 9–23."},
+ {id:"choihung",ko:"초이홍 농구장",en:"Choi Hung Estate",lat:22.3345262,lng:114.2071925,cat:"sight",day:3,note:"무지개 농구장. 거주지 매너. 맑은 오전 최적"},
+ {id:"mplus",ko:"M+ 뮤지엄",en:"M+ Museum",lat:22.3005164,lng:114.1594998,cat:"sight",day:3,note:"현대미술. 월 휴무, 토 18시 마감. 무더위·우천 최적"},
+ {id:"avenue",ko:"스타의 거리",en:"Avenue of Stars",lat:22.2930046,lng:114.1741517,cat:"sight",day:3,note:"하버 산책로. 일몰 ~19:10. 라이트쇼 20:00"},
+ {id:"harbour",ko:"하버시티",en:"Harbour City",lat:22.2953381,lng:114.1688303,cat:"shop",day:3,note:"초대형 쇼핑몰(실내)."},
+ {id:"h1881",ko:"1881 헤리티지",en:"1881 Heritage",lat:22.2951817,lng:114.1697595,cat:"shop",day:3,note:"옛 해경본부 복합몰. 역사 건축+쇼핑"},
+ {id:"k11",ko:"K11 MUSEA",en:"K11 MUSEA",lat:22.2941573,lng:114.1739272,cat:"shop",day:3,note:"아트 쇼핑몰. 10–22."},
+ {id:"jennytst",ko:"제니베이커리 (침사추이)",en:"Jenny TST",lat:22.2972567,lng:114.1726391,cat:"sweet",day:3,note:"버터쿠키. 현금, 줄 길 수 있음."},
+ {id:"keewah",ko:"기화병가",en:"Kee Wah Bakery",lat:22.2987869,lng:114.1735822,cat:"sweet",day:3,note:"전통 과자·선물박스(카드 가능). 9–21."},
+ {id:"hashtagb",ko:"Hashtag B",en:"Hashtag B, TST",lat:22.2994901,lng:114.1735972,cat:"sweet",day:3,note:"에그타르트 타르트. 8–22."},
+ {id:"tamjai",ko:"TamJai SamGor",en:"譚仔三哥",lat:22.3001854,lng:114.1766062,cat:"food",day:3,note:"마라 미센 가성비. 11–21:30."},
+ {id:"shekkee",ko:"Shek Kee (완탕면)",en:"Shek Kee Wonton",lat:22.2969461,lng:114.1707205,cat:"food",day:3,note:"완탕면. 일 휴무, 11–21."},
+ {id:"oiman",ko:"애문생 (다이파이동)",en:"Oi Man Sang",lat:22.3266872,lng:114.1623071,cat:"food",day:3,note:"다이파이동. 16:30~23, 야외. 백종원 추천"},
+ {id:"luklam",ko:"삼기/녹림 디저트",en:"Sam Kee Dessert",lat:22.3306108,lng:114.1652127,cat:"sweet",day:3,note:"전통 디저트. 14~02."},
+ {id:"langham",ko:"랑함 플레이스",en:"Langham Place",lat:22.3181,lng:114.1686,cat:"shop",day:3,add:true,note:"몽콕 대형몰(실내). 우천 시 초이홍 대체"},
+ {id:"sky100",ko:"Sky100",en:"Sky100",lat:22.3036,lng:114.1601,cat:"sight",day:3,add:true,note:"실내 전망대. 우천 시 피크 대체 야경"},
+ 
+ // Off-route
+ {id:"bakerlubuds",ko:"Baker by LUBUDS",en:"Baker by LUBUDS",lat:22.285593,lng:114.2176635,cat:"sweet",day:2,off:true,note:"타이쿠. 에그타르트 9:30/12/15/17시"},
+ {id:"taste",ko:"Taste (슈퍼)",en:"Taste",lat:22.3054521,lng:114.19117,cat:"shop",day:3,off:true,note:"대형 슈퍼. 8–22:30"}
+];
+const SMAP = {};
+SPOTS.forEach(s => SMAP[s.id] = s);
+
+/* ---------- Plans ---------- */
+const PLANS = {
+ "1":{ both:{ stops:[
+   {t:"야간",id:"hotel",title:"공항 → 센트럴 숙소 체크인",desc:"공항철도(AEL)나 버스로 이동. 공항에서 옥토퍼스 카드 구매·eSIM 켜기·소액 현금 확보."},
+   {t:"23:00~",id:"cheztrente",title:"심야 — Chez Trente",desc:"숙소 도착 후 소호의 숨겨진 재즈 클럽 & 아트 스페이스에서 가벼운 한잔."}
+ ]}},
+ "2":{
+  sun:{ stops:[
+   {t:"09:00",id:"lanfong",title:"조식 — 란퐁유엔",desc:"상기콘지는 금요일 휴무라 란퐁유엔(밀크티·토스트)으로 대체."},
+   {t:"09:40",id:"western",title:"셩완 산책",desc:"웨스턴 마켓 + Shiu Shing Hong + 제니베이커리 쿠키 선구매"},
+   {t:"10:20",id:"escalator",title:"미드레벨 에스컬레이터 ↑",desc:"10시 이후 상행. 오르며 7-COLOUR HARBOUR 구경"},
+   {t:"10:45",id:"manmo",title:"만모사원 · 캣스트리트",desc:"만모사원 향 연기 → Select 18·GALET 빈티지 보물찾기"},
+   {t:"12:30",id:"kaukee",title:"점심 — 카우키",desc:"12:30 오픈에 맞춰 소고기국수(현금). 못 맞추면 침차이키"},
+   {t:"13:40",id:"bakehouse",title:"완자이 에그타르트",desc:"베이크하우스 갓 구운 사워도 에그타르트"},
+   {t:"14:20",id:"aptcoffee",title:"스타스트리트 + 커피",desc:"Apt. Coffee 또는 Kaōri에서 에어컨 + 커피"},
+   {t:"15:10",id:"bauhinia",title:"완자이 명소",desc:"완자이 마켓 → 블루하우스 → 골든 바우히니아"},
+   {t:"16:30",id:"spa",title:"마사지 — Beauty & Spa",desc:"예약 60분으로 피로 회복"},
+   {t:"18:00",id:"dingdim",title:"저녁 — 딩딤 1968",desc:"육즙 딤섬"},
+   {t:"19:15",id:"peak",title:"빅토리아 피크 야경",desc:"익스체인지 스퀘어 15번 버스 또는 예약 트램."},
+   {t:"21:15",id:"lkf",title:"마무리 — 란콰이퐁",desc:"맥주 한잔 / Dragonfly 등 다채로운 옵션"}
+  ]},
+  rain:{ stops:[
+   {t:"09:00",id:"lanfong",title:"조식 — 란퐁유엔 (실내)",desc:"밀크티·토스트."},
+   {t:"09:40",id:"western",title:"셩완 (실내 위주)",desc:"웨스턴 마켓(실내) + Shiu Shing Hong + 제니베이커리 쿠키"},
+   {t:"10:20",id:"escalator",title:"에스컬레이터(지붕) · 소호",desc:"만모사원(실내) → 캣스트리트 상점"},
+   {t:"12:00",id:"kaukee",title:"점심 — 카우키",desc:"12:30 오픈 / 침차이키"},
+   {t:"13:00",id:"taikwun",title:"타이쿤 (실내 피난)",desc:"옛 경찰서·감옥 → 갤러리·전시(대부분 실내/지붕). 비 오는 날 최적"},
+   {t:"14:30",id:"bakehouse",title:"완자이 에그타르트",desc:"베이크하우스 → Apt.Coffee/Kaōri(실내)"},
+   {t:"15:30",id:"pacific",title:"퍼시픽 플레이스 쇼핑",desc:"애드미럴티 대형몰(실내) 쾌적 쇼핑"},
+   {t:"16:30",id:"spa",title:"마사지 — Beauty & Spa",desc:"예약 60분"},
+   {t:"18:00",id:"dingdim",title:"저녁 — 딩딤 1968",desc:"딤섬"},
+   {t:"19:30",id:"dragonfly",title:"마무리 (피크 스킵)",desc:"안개로 야경 어려움 → 피크 스킵. Dragonfly 또는 란콰이퐁 실내 펍"}
+  ]}
+ },
+ "3":{
+  sun:{ stops:[
+   {t:"08:00",id:"adc",title:"조식 — 호주우유공사",desc:"일찍(줄↓)·현금. 토 영업(목 휴무). 스크램블에그 토스트"},
+   {t:"09:00",id:null,title:"짐 처리",desc:"체크아웃 후 구룡으로 → 라커 보관 또는 인타운 체크인. (센트럴 복귀 금지!)"},
+   {t:"09:30",id:"choihung",title:"초이홍 농구장",desc:"맑은 오전 = 무지개 쨍. C3/C4 주차장 옥상"},
+   {t:"11:00",id:"onedim",title:"점심 — 원 딤섬 + 마켓",desc:"가성비 딤섬 + 레이디스마켓"},
+   {t:"13:00",id:"mplus",title:"M+ 뮤지엄 (피서)",desc:"에어컨+하버뷰. 토 18시 마감·예약"},
+   {t:"15:30",id:"k11",title:"침사추이 쇼핑 (에어컨)",desc:"K11 MUSEA/하버시티/1881 + 제니·기화병가 쿠키"},
+   {t:"17:30",id:"shekkee",title:"이른 저녁 — TST 실내",desc:"노을 전에 완탕/TamJai."},
+   {t:"18:45",id:"avenue",title:"스타의 거리 — 노을",desc:"일몰 ~19:10 골든아워"},
+   {t:"20:00",id:"temple",title:"[택1] 라이트쇼 또는 야시장",desc:"20:00 심포니 오브 라이츠 / 또는 템플스트리트 야시장"},
+   {t:"20:35",id:null,title:"공항 — Kowloon역 AEL",desc:"20:35 탑승 → 공항 ~21:00. 00:05 출발 · 3시간 전 도착"}
+  ]},
+  rain:{ stops:[
+   {t:"08:00",id:"adc",title:"조식 — 호주우유공사",desc:"현금, 토 영업. 일찍"},
+   {t:"09:00",id:null,title:"짐 처리",desc:"라커/인타운 체크인 → 밤에 Kowloon역에서 AEL"},
+   {t:"09:30",id:"langham",title:"몽콕 실내 (초이홍 스킵)",desc:"초이홍 스킵. 랑함 플레이스 몰 추천"},
+   {t:"11:00",id:"yattung",title:"점심 — 일동헌 (쾌적)",desc:"미쉐린 딤섬(예약) — 비 오는 날 추천 / 또는 원 딤섬"},
+   {t:"13:00",id:"mplus",title:"M+ 뮤지엄",desc:"비 오는 날 최고 코스. 토 18시 마감"},
+   {t:"16:00",id:"k11",title:"침사추이 쇼핑",desc:"K11/하버시티/1881 + 쿠키"},
+   {t:"18:00",id:"shekkee",title:"저녁 — TST 실내",desc:"Shek Kee 완탕 / TamJai / 흥키 클레이팟."},
+   {t:"19:30",id:"temple",title:"야시장 (가볍게)",desc:"비 오면 짧게/스킵"},
+   {t:"20:35",id:null,title:"공항 — Kowloon역 AEL",desc:"20:35 탑승 → 공항 ~21:00."}
+  ]}
+ }
+};
+
+/* ---------- Cautions (원본 데이터 복구) ---------- */
+const CAUTIONS = [
+ {title:"공통 · 준비물 & 전반", items:[
+   {k:"옥토퍼스 + 현금:",t:" MTR·트램·버스·페리·피크트램·편의점은 옥토퍼스. 단 카우키·호주우유공사·란퐁유엔·제니베이커리·침차이키·다이파이동은 <b>현금/옥토퍼스만(카드 X)</b> — 현금 꼭 챙기기."},
+   {k:"6월 = 태풍·호우 시즌:",t:" 덥고 습함. 접이식 우산(양산 겸용)·자외선·통풍 옷. 홍콩 천문대(HKO)에서 <b>태풍(T8)·호우(흑/적색)</b> 경보 확인 — 뜨면 교통·페리·피크·일부 시설 중단. 실내 대체 플랜 필수.", warn:true},
+   {k:"전원·통신:",t:" 영국식 3구(BS1363) 어댑터. eSIM/로밍. 환승 앱은 Citymapper/MTR Mobile."},
+   {k:"예약 미리:",t:" M+ 타임티켓(온라인), 피크트램 온라인(매표 줄 스킵), Beauty & Spa(예약·정확한 위치 확인), 일동헌(피크타임)."},
+   {k:"제니베이커리:",t:" 한정 수량 — 오전 일찍·현금. 2일 차 셩완점 선구매 권장."}
+ ]},
+ {title:"2일 차 · 6/26(금) 홍콩섬", d:2, items:[
+   {k:"상기콘지 금·일 휴무:",t:" 6/26(금)엔 못 갑니다 → 조식은 <b>란퐁유엔(7:30)</b> 또는 싱흥유엔(8:00)으로 대체.", warn:true},
+   {k:"카우키 12:30 오픈:",t:" 일 휴무·현금만. 소호 산책 후 12:30 오픈에 맞춰 도착. 못 맞추면 침차이키."},
+   {k:"에스컬레이터 방향:",t:" 6–10시 하행, 10시 이후 상행 — 소호 올라가려면 10시 이후."},
+   {k:"베이크하우스 위치:",t:" 완자이 본점 기준이라 <b>오후 완자이 일정</b>에 배치(지도 마커는 근사 위치 — 확인)."},
+   {k:"피크 트램 줄:",t:" 저녁(특히 하산) 대기 20–60분. <b>온라인 예약</b>하거나 익스체인지 스퀘어 <b>15번 버스</b>. 저녁이 빠듯하니 스파 60분·란콰이퐁은 밤늦게 합류."},
+   {k:"☁️ 우천 시:",t:" 피크 야경 포기 → 타이쿤·퍼시픽플레이스·Dragonfly 등 실내로."}
+ ]},
+ {title:"3일 차 · 6/27(토) 구룡 + 밤비행기", d:3, items:[
+   {k:"짐·공항 동선:",t:" <b>센트럴로 되돌아가지 말 것.</b> 아침 체크아웃 시 캐리어 들고 구룡으로 → Austin/Kowloon역 라커 또는 Kowloon역 AEL 인타운 체크인 → 밤에 <b>Kowloon역에서 바로 AEL</b>(공항 21분).", warn:true},
+   {k:"출발 00:05 · 21:05까지 공항(3시간 전):",t:" Kowloon역에서 <b>20:30~20:35 AEL 탑승 → 공항 ~21:00</b>(늦어도 20:40). 저녁 여유 있어 <b>야시장과 20:00 심포니 오브 라이츠 중 택1</b> 가능. 인타운 체크인은 22:35(출발 90분 전) 마감 — 아침에 처리하면 편함.", warn:true},
+   {k:"호주우유공사:",t:" 목 휴무(토 영업), 7:30 오픈·현금 — 줄 짧은 8시 전후."},
+   {k:"초이홍 농구장:",t:" 거주 단지(매너), C3/C4 주차장 옥상. 맑은 오전 최적. ☁️ 비 오면 색감↓·미끄럼 → 스킵하고 랑함 플레이스 등 실내로."},
+   {k:"M+:",t:" 월 휴무(토 영업), <b>토 18시 마감</b>·~HK$190·주말 혼잡 → 타임티켓 예약. M+ + 하버시티 + 1881 전부 한 번에 보긴 무리 → M+ 메인이면 쇼핑은 가볍게."},
+   {k:"노을 vs 라이트쇼:",t:" 일몰 ~19:10, 심포니 오브 라이츠 20:00 — 쇼까지 보면 야시장·공항 빠듯하니 택1."},
+   {k:"애문생(삼수이포):",t:" 야외·대기 김(맑은 날·시간 여유 시). 깔끔·우천은 TST 실내(Shek Kee/TamJai)나 흥키 클레이팟."}
+ ]},
+ {title:"참고", items:[
+   {k:"익청빌딩:",t:" 요청대로 일정에서 <b>제외(스킵)</b> 했습니다."},
+   {k:"동선 밖 스폿:",t:" Baker by LUBUDS(타이쿠)·Taste(황포)는 동선에서 벗어나 지도에 <b>회색·점선</b>으로만 표시. ‘록예딤섬’은 정확히 식별되지 않아 제외(딤섬은 딩딤·원딤섬·일동헌으로 충분)."}
+ ]}
+];
+
+/* ---------- Map ---------- */
+const map = L.map("map",{zoomControl:true,scrollWheelZoom:true}).setView([22.305,114.165],12.4);
+
+// 주소 검색 컨트롤 바인딩 (Leaflet Control Geocoder)
+const geocoder = L.Control.geocoder({
+  defaultMarkGeocode: false,
+  placeholder: "지도 내 주소 검색...",
+  position: "topleft"
+}).addTo(map);
+
+let searchTempMarker = null;
+
+geocoder.on('markgeocode', function(e) {
+  const latlng = e.geocode.center;
+  const placeName = e.geocode.name.split(',')[0]; 
+  if(searchTempMarker) map.removeLayer(searchTempMarker);
+  
+  map.flyTo(latlng, 16);
+  searchTempMarker = L.marker(latlng).addTo(map);
+  
+  const popupHtml = `
+    <div style="font-size:14px; font-weight:bold; margin-bottom:4px; color:#fff">${placeName}</div>
+    <div style="font-size:11px; color:var(--muted); margin-bottom:10px">${e.geocode.name}</div>
+    <button id="btn-confirm-search-add" style="background:var(--d3); color:#053038; border:none; padding:6px; width:100%; border-radius:4px; cursor:pointer; font-weight:800;">이 위치 내 일정에 추가</button>
+  `;
+  searchTempMarker.bindPopup(popupHtml).openPopup();
+
+  searchTempMarker.on('popupopen', () => {
+    const btn = document.getElementById("btn-confirm-search-add");
+    if(btn) {
+      btn.addEventListener('click', () => {
+        map.closePopup();
+        if(searchTempMarker) map.removeLayer(searchTempMarker);
+        promptToAddPlace(latlng.lat, latlng.lng, placeName);
+      });
+    }
+  });
+});
+
+const tileMsg=L.control({position:"bottomleft"});
+tileMsg.onAdd=function(){
+  const d=L.DomUtil.create("div","tilemsg");
+  d.style.display="none";
+  d.innerHTML="⚠️ 미리보기에서 지도 타일이 차단되었습니다. 파일을 <b>다운로드해 브라우저로 열면</b> 표시됩니다.";
+  return d;
+};
+tileMsg.addTo(map);
+
+const TILE_PROVIDERS=[
+  {url:"https://{s}.basemap.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png",opt:{subdomains:"abcd",maxZoom:20,detectRetina:true,attribution:"© OpenStreetMap © CARTO"}},
+  {url:"https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",opt:{maxZoom:19,detectRetina:true,attribution:"© Esri"}},
+  {url:"https://maps.wikimedia.org/osm-intl/{z}/{x}/{y}.png",opt:{maxZoom:18,detectRetina:true,attribution:"© OpenStreetMap"}}
+];
+let _pIdx=0,_curTiles=null,_pErr=false;
+function useProvider(i){
+  _pErr=false;
+  if(_curTiles) map.removeLayer(_curTiles);
+  const p=TILE_PROVIDERS[i];
+  _curTiles=L.tileLayer(p.url,p.opt);
+  _curTiles.on("tileerror",function(){
+    if(_pErr) return; _pErr=true;
+    if(_pIdx<TILE_PROVIDERS.length-1){ _pIdx++; useProvider(_pIdx); }
+    else { const d=document.querySelector(".tilemsg"); if(d) d.style.display="block"; }
+  });
+  _curTiles.addTo(map);
+}
+useProvider(0);
+
+function fixMapSize(){ try{ map.invalidateSize(false); }catch(e){} }
+setTimeout(fixMapSize,150); window.addEventListener("resize",fixMapSize);
+
+const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function dayColor(d){return d===2?cssVar("--d2"):d===3?cssVar("--d3"):cssVar("--d1");}
+
+function smallIcon(s){
+  const bg=s.off?cssVar("--off"):dayColor(s.day);
+  return L.divIcon({className:"",html:`<div class="dotmk ${s.off?'off':''}" style="background:${bg}"></div>`,iconSize:[13,13],iconAnchor:[7,7],popupAnchor:[0,-8]});
+}
+function pinIcon(s){
+  const bg=dayColor(s.day);
+  const cls="mk"+(s.add?" add":"");
+  return L.divIcon({className:"",html:`<div class="${cls}" style="background:${bg}"><span>${CAT[s.cat]?.e||'📍'}</span></div>`,iconSize:[28,28],iconAnchor:[14,26],popupAnchor:[0,-24]});
+}
+function numBadge(s,n){
+  return L.divIcon({className:"",html:`<div class="numbubble" style="background:${dayColor(s.day)}">${n}</div>`,iconSize:[16,16],iconAnchor:[-1,30]});
+}
+function popupHTML(s){
+  const cat = CAT[s.cat] || {e:'📍', l:'기타 장소'};
+  return `<b>${s.ko}</b><br><span class="pop-en">${s.en||''}</span>`+
+         `<span class="pop-note">${s.note||''}</span>`+
+         `<span class="pop-cat">${cat.e} ${cat.l}</span>`;
+}
+
+const markers={};
+const markerLayer=L.layerGroup().addTo(map);
+const routeLayer=L.layerGroup().addTo(map);
+const labelLayer=L.layerGroup().addTo(map);
+
+let day="2", wx="sun";
+
+function activePlan(){
+  const p=PLANS[day]; return p? (p.both||p[wx]) : null;
+}
+function drawMarkers(){
+  markerLayer.clearLayers(); labelLayer.clearLayers();
+  const plan=activePlan();
+  const routeIds = plan ? plan.stops.filter(x=>x.id&&SMAP[x.id]).map(x=>x.id) : [];
+  const routeSet = new Set(routeIds);
+  SPOTS.forEach(s=>{
+    const belongs = (day==="all") || (String(s.day)===day);
+    if(!belongs) return;
+    const onRoute = routeSet.has(s.id);
+    const m=L.marker([s.lat,s.lng],{
+      icon: onRoute?pinIcon(s):smallIcon(s),
+      title:s.ko, zIndexOffset:onRoute?400:100, riseOnHover:true
+    }).bindPopup(popupHTML(s));
+    markerLayer.addLayer(m);
+    markers[s.id]=m;
+  });
+  routeIds.forEach((id,i)=>{
+    labelLayer.addLayer(L.marker([SMAP[id].lat,SMAP[id].lng],
+      {icon:numBadge(SMAP[id],i+1), zIndexOffset:700, interactive:false}));
+  });
+}
+function renderMap(){
+  routeLayer.clearLayers(); drawMarkers();
+  const plan=activePlan();
+  if(!plan){
+    map.flyToBounds(L.latLngBounds(SPOTS.filter(s=>!s.off).map(s=>[s.lat,s.lng])),{padding:[40,40],duration:.6});
+    return;
+  }
+  const lineIds=plan.stops.filter(x=>x.id&&SMAP[x.id]).map(x=>x.id);
+  const latlngs=lineIds.map(id=>[SMAP[id].lat,SMAP[id].lng]);
+  if(latlngs.length>1){
+    L.polyline(latlngs,{color:dayColor(SMAP[lineIds[0]].day),weight:4,opacity:.9,
+      dashArray: wx==="rain"?"2 9":null, lineCap:"round", lineJoin:"round"}).addTo(routeLayer);
+  }
+  if(latlngs.length){
+    map.flyToBounds(L.latLngBounds(latlngs.length>1?latlngs:[latlngs[0],latlngs[0]]),{padding:[60,60],maxZoom:15,duration:.6});
+  }
+}
+
+function renderPlan(){
+  const el=document.getElementById("panel-plan");
+  const plan=activePlan();
+  const dc = day==="2"?"d2":day==="3"?"d3":"d1";
+  if(!plan){
+    el.innerHTML=`<div class="planhead"><span class="chip ${dc}">전체 스폿</span></div>
+      <p class="tl-desc">날짜 탭을 누르면 루트가 표시됩니다. 마커를 누르면 상세정보가 나옵니다.</p>`;
+    return;
+  }
+  let h=`<div class="planhead"><span class="chip ${dc}">일정</span></div><ol class="timeline ${dc}">`;
+  plan.stops.forEach((s,i)=>{
+    const clickable = s.id&&markers[s.id];
+    h+=`<li ${clickable?`data-go="${s.id}"`:"data-go=\"\""}>
+      <span class="dot">${i+1}</span><div class="tl-time">${s.t}</div>
+      <div class="tl-title">${s.title}</div><div class="tl-desc">${s.desc}</div></li>`;
+  });
+  h+=`</ol>`; el.innerHTML=h;
+  bindListClicks(el);
+}
+
+function renderCategoryList() {
+  const el = document.getElementById("panel-cat");
+  const groups = {
+    "🍜 맛집 (Food)": SPOTS.filter(s => s.cat === "food"),
+    "🥐 카페·디저트 (Cafe)": SPOTS.filter(s => s.cat === "sweet"),
+    "🍸 바·주점 (Bar)": SPOTS.filter(s => s.cat === "bar"),
+    "📸 갈만한 곳 (Places)": SPOTS.filter(s => !["food", "sweet", "bar"].includes(s.cat))
+  };
+
+  let h = `<div class="cau-sec"><p class="tl-desc" style="margin-top:0">장소를 클릭하면 지도가 이동합니다. 숨겨진 날짜의 장소일 경우 자동으로 '전체' 보기로 전환됩니다.</p>`;
+  for (const [title, spots] of Object.entries(groups)) {
+    if(spots.length === 0) continue;
+    h += `<h3 style="margin-top:20px">${title}</h3><ol class="timeline d1">`;
+    spots.forEach(s => {
+      h += `<li data-go="${s.id}">
+              <div class="tl-title" style="margin-bottom:4px">${s.ko} 
+                <span style="font-size:11px; font-weight:normal; color:var(--muted); border:1px solid var(--line); border-radius:4px; padding:1px 4px; margin-left:4px">
+                  Day ${s.day === "all" ? "전체" : s.day}
+                </span>
+              </div>
+              <div class="tl-desc" style="font-size:11.5px">${s.note}</div>
+            </li>`;
+    });
+    h += `</ol>`;
+  }
+  h += `</div>`;
+  el.innerHTML = h;
+  bindListClicks(el);
+}
+
+function bindListClicks(el) {
+  el.querySelectorAll("li[data-go]").forEach(li => {
+    li.addEventListener("click", () => {
+      const id = li.getAttribute("data-go");
+      if(!id) return;
+      if (!markers[id]) {
+          document.querySelector('[data-day="all"]').click();
+      }
+      setTimeout(() => {
+          const m = markers[id];
+          if(m) {
+              map.flyTo([SMAP[id].lat, SMAP[id].lng], 16, {duration: .6});
+              m.openPopup();
+          }
+      }, 50);
+    });
+  });
+}
+
+// ----------------------------------------------------
+// 원본 주의사항 (Cautions) 함수 복원
+// ----------------------------------------------------
+function renderCautions(){
+  const el=document.getElementById("panel-cau");
+  let h="";
+  CAUTIONS.forEach(sec=>{
+    const tag = sec.d===2?'<span class="tagd2">●</span> ':sec.d===3?'<span class="tagd3">●</span> ':'';
+    h+=`<div class="cau-sec"><h3>${tag}${sec.title}</h3><ol class="cau">`;
+    sec.items.forEach(it=>{
+      h+=`<li class="${it.warn?'warn':''}"><span class="k">${it.k}</span>${it.t}</li>`;
+    });
+    h+=`</ol></div>`;
+  });
+  el.innerHTML=h;
+}
+
+// ----------------------------------------------------
+// 원본 범례 (Legend) 함수 복원
+// ----------------------------------------------------
+function renderLegend(){
+  const el=document.getElementById("panel-leg");
+  let h=`<div class="leg"><h3>날짜별 경로</h3>`;
+  h+=`<div class="row"><span class="swatch" style="border-top-color:${cssVar('--d2')}"></span><b>2일 · 홍콩섬</b></div>`;
+  h+=`<div class="row"><span class="swatch" style="border-top-color:${cssVar('--d3')}"></span><b>3일 · 구룡</b></div>`;
+  h+=`<div class="row"><span class="swatch" style="border-top-color:${cssVar('--d1')}"></span><b>1일 · 도착</b></div>`;
+  h+=`<h3>날씨 (선 모양)</h3>`;
+  h+=`<div class="row"><span class="swatch" style="border-top-color:#fff;border-top-style:solid"></span><small>실선 = ☀️ 맑음 루트</small></div>`;
+  h+=`<div class="row"><span class="swatch" style="border-top-color:#fff;border-top-style:dotted;border-top-width:4px"></span><small>점선 = ☁️ 비·흐림 루트</small></div>`;
+  h+=`<h3>마커 종류</h3>`;
+  Object.entries(CAT).forEach(([k,v])=>{
+    h+=`<div class="row"><span class="ldot" style="background:#2a3656">${v.e}</span><small>${v.l}</small></div>`;
+  });
+  h+=`<h3>마커 색·테두리</h3>`;
+  h+=`<div class="row"><span class="ldot" style="background:${cssVar('--d2')}"></span><small>2일 스폿(주황) / 3일 스폿(청록)</small></div>`;
+  h+=`<div class="row"><span class="ldot" style="background:#cdd6ea;color:#111">＋</span><small>＋추천 = 동선 주변 추가 제안(실내/우천 대체 등)</small></div>`;
+  h+=`<div class="row"><span class="ldot off" style="background:${cssVar('--off')};border:2px dashed #fff">·</span><small>회색 점선 = 동선 밖(참고용)</small></div>`;
+  h+=`<h3>마커 크기</h3>`;
+  h+=`<div class="row"><span class="ldot" style="background:${cssVar('--d2')};width:24px;height:24px;color:#0b1020;font-weight:800;font-size:11px">3</span><small>큰 핀 + 번호 = 그날 경로 지점(방문 순서)</small></div>`;
+  h+=`<div class="row"><span class="ldot" style="background:${cssVar('--d2')};width:12px;height:12px"></span><small>작은 점 = 경로 외 대안·추천 스폿(클릭 시 정보)</small></div>`;
+  h+=`<p class="tl-desc" style="margin-top:12px">일정 탭에서 항목을 누르면 지도가 해당 위치로 이동합니다. 선택한 날짜 외 스폿은 숨겨집니다.</p></div>`;
+  el.innerHTML=h;
+}
+
+/* ---------- User Interactions ---------- */
+document.querySelectorAll(".seg.day button").forEach(b=>{
+  b.addEventListener("click",()=>{
+    document.querySelectorAll(".seg.day button").forEach(x=>x.setAttribute("aria-pressed","false"));
+    b.setAttribute("aria-pressed","true"); day=b.dataset.day; renderMap(); renderPlan();
+  });
+});
+document.querySelectorAll(".seg.wx button").forEach(b=>{
+  b.addEventListener("click",()=>{
+    document.querySelectorAll(".seg.wx button").forEach(x=>x.setAttribute("aria-pressed","false"));
+    b.setAttribute("aria-pressed","true"); wx=b.dataset.wx; renderMap(); renderPlan();
+  });
+});
+const tabs=[["tab-plan","panel-plan"],["tab-cat","panel-cat"],["tab-cau","panel-cau"],["tab-leg","panel-leg"]];
+tabs.forEach(([tid,pid])=>{
+  document.getElementById(tid).addEventListener("click",()=>{
+    tabs.forEach(([t,p])=>{
+      const on=t===tid;
+      document.getElementById(t).setAttribute("aria-selected",on);
+      document.getElementById(p).hidden=!on;
+    });
+  });
+});
+
+/* ---------- Add Spot Feature (Search & Click) ---------- */
+function promptToAddPlace(lat, lng, defaultName = "") {
+  const ko = prompt("추가할 장소의 이름을 입력하세요:", defaultName);
+  if(!ko) return;
+
+  let catInput = prompt("분류를 영문으로 입력하세요\n(food:식당, sweet:카페/디저트, bar:주점, sight:명소, shop:상점 중 택 1)", "sight");
+  if(!catInput || !CAT[catInput]) catInput = "sight";
+
+  const dayInput = prompt("몇 일차 일정인가요? (1, 2, 3 중 입력. 모르면 all)", "all");
+  const parsedDay = isNaN(parseInt(dayInput)) ? "all" : parseInt(dayInput);
+
+  const newId = "custom_" + Date.now();
+  const newSpot = {
+    id: newId,
+    ko: ko,
+    en: "Custom Spot",
+    lat: lat,
+    lng: lng,
+    cat: catInput,
+    day: parsedDay,
+    note: "직접 검색/클릭하여 추가한 맞춤 장소입니다.",
+    off: true 
+  };
+
+  SPOTS.push(newSpot);
+  SMAP[newId] = newSpot;
+
+  renderMap();
+  renderPlan();
+  renderCategoryList();
+  
+  alert(`'${ko}' 장소가 성공적으로 추가되었습니다!`);
+}
+
+// 1. Search to Add
+const btnSearchAdd = document.getElementById("btn-search-add");
+btnSearchAdd.addEventListener("click", () => {
+  const query = prompt("검색할 장소명이나 주소를 입력하세요\n(영문으로 검색하면 더 정확합니다. 예: Disneyland):");
+  if (!query) return;
+
+  btnSearchAdd.innerText = "⏳ 검색 중...";
+  
+  const searchUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query + ", Hong Kong")}&limit=5`;
+  
+  fetch(searchUrl)
+    .then(res => res.json())
+    .then(data => {
+      btnSearchAdd.innerText = "🔍 검색 추가";
+      if (data.length > 0) {
+        const place = data[0];
+        const lat = parseFloat(place.lat);
+        const lng = parseFloat(place.lon);
+        
+        map.flyTo([lat, lng], 16);
+        
+        if(searchTempMarker) map.removeLayer(searchTempMarker);
+        searchTempMarker = L.marker([lat, lng]).addTo(map);
+        searchTempMarker.bindPopup(`<b>${place.name || query}</b><br>이 위치가 맞다면 추가를 진행해주세요.`).openPopup();
+        
+        setTimeout(() => {
+          promptToAddPlace(lat, lng, place.name || query);
+        }, 800);
+      } else {
+        alert("검색 결과를 찾을 수 없습니다. 영문명이나 더 정확한 주소로 다시 시도해보세요.");
+      }
+    })
+    .catch(err => {
+      btnSearchAdd.innerText = "🔍 검색 추가";
+      alert("검색 중 오류가 발생했습니다.");
+    });
+});
+
+// 2. Click Map to Add
+let isAddingSpot = false;
+const btnAdd = document.getElementById("btn-add-spot");
+
+btnAdd.addEventListener("click", () => {
+  isAddingSpot = !isAddingSpot;
+  if(isAddingSpot) {
+    btnAdd.style.background = "#ff9e3d";
+    btnAdd.innerText = "📍 위치 클릭 (취소: 재클릭)";
+    document.getElementById("map").style.cursor = "crosshair";
+  } else {
+    btnAdd.style.background = "var(--d3)";
+    btnAdd.innerText = "➕ 지도 클릭";
+    document.getElementById("map").style.cursor = "";
+  }
+});
+
+map.on("click", (e) => {
+  if(!isAddingSpot) return;
+  promptToAddPlace(e.latlng.lat, e.latlng.lng);
+  btnAdd.click(); // 추가 모드 해제
+});
+
+// Init
+renderCautions(); renderLegend(); renderCategoryList(); renderMap(); renderPlan();
+</script>
+</body>
+</html>
